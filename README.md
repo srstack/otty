@@ -42,6 +42,7 @@ Prebuilt artifacts are published on the GitHub Releases page: https://github.com
 
 - Linux: DEB- and RPM-based distributions (`.deb` / `.rpm`).
 - macOS: Intel (`x86_64`) and Apple Silicon (`aarch64`) builds (`.dmg`).
+- Windows: build from source; SSH remote sessions supported, local shell sessions are not available yet.
 
 ### Roadmap
 
