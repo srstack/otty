@@ -1,6 +1,6 @@
 use iced::Task;
 
-use super::AppEvent;
+use super::{AppEvent, open_terminal_tab_task};
 use crate::app::App;
 use crate::widgets::quick_launch::{QuickLaunchEvent, QuickLaunchIntent};
 use crate::widgets::sidebar::{SidebarEffect, SidebarEvent};
@@ -34,33 +34,6 @@ fn handle_effect(app: &App, event: SidebarEffect) -> Task<AppEvent> {
             QuickLaunchEvent::Intent(QuickLaunchIntent::ResetInteractionState),
         )),
     }
-}
-
-#[cfg(not(windows))]
-fn open_terminal_tab_task(app: &App) -> Task<AppEvent> {
-    Task::done(AppEvent::Tabs(TabsEvent::Intent(
-        TabsIntent::OpenTerminalTab {
-            title: app.shell_session.name().to_string(),
-        },
-    )))
-}
-
-/// Local sessions are unsupported on Windows; route new-tab requests to the
-/// quick launch wizard pre-selected to SSH instead.
-#[cfg(windows)]
-fn open_terminal_tab_task(_app: &App) -> Task<AppEvent> {
-    use crate::domain::quick_launch::WizardTabInit;
-    use crate::widgets::quick_launch::types::QuickLaunchType;
-
-    Task::done(AppEvent::Tabs(TabsEvent::Intent(
-        TabsIntent::OpenWizardTab {
-            title: String::from("New SSH Connection"),
-            init: WizardTabInit::Create {
-                parent_path: Vec::new(),
-                command_type: QuickLaunchType::Ssh,
-            },
-        },
-    )))
 }
 
 #[cfg(all(test, windows))]

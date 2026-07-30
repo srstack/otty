@@ -39,11 +39,7 @@ pub(crate) enum AppEvent {
 
 pub(crate) fn handle(app: &mut App, event: AppEvent) -> Task<AppEvent> {
     match event {
-        AppEvent::IcedReady => Task::done(AppEvent::Tabs(TabsEvent::Intent(
-            TabsIntent::OpenTerminalTab {
-                title: app.shell_session.name().to_string(),
-            },
-        ))),
+        AppEvent::IcedReady => open_terminal_tab_task(app),
         AppEvent::Sidebar(event) => sidebar::handle(app, event),
         AppEvent::Chrome(event) => chrome::handle(app, event),
         AppEvent::Tabs(event) => tabs::handle(app, event),
@@ -85,4 +81,32 @@ pub(crate) fn handle(app: &mut App, event: AppEvent) -> Task<AppEvent> {
         },
         AppEvent::Window(_) => Task::none(),
     }
+}
+
+/// Build the task that opens a fresh terminal tab for the user's shell.
+#[cfg(not(windows))]
+pub(crate) fn open_terminal_tab_task(app: &App) -> Task<AppEvent> {
+    Task::done(AppEvent::Tabs(TabsEvent::Intent(
+        TabsIntent::OpenTerminalTab {
+            title: app.shell_session.name().to_string(),
+        },
+    )))
+}
+
+/// Local sessions are unsupported on Windows; route new-tab requests to the
+/// quick launch wizard pre-selected to SSH instead.
+#[cfg(windows)]
+pub(crate) fn open_terminal_tab_task(_app: &App) -> Task<AppEvent> {
+    use crate::domain::quick_launch::WizardTabInit;
+    use crate::widgets::quick_launch::types::QuickLaunchType;
+
+    Task::done(AppEvent::Tabs(TabsEvent::Intent(
+        TabsIntent::OpenWizardTab {
+            title: String::from("New SSH Connection"),
+            init: WizardTabInit::Create {
+                parent_path: Vec::new(),
+                command_type: QuickLaunchType::Ssh,
+            },
+        },
+    )))
 }
