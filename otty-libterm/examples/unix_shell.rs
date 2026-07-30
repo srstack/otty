@@ -1,7 +1,11 @@
+#[cfg(unix)]
 use std::io::{self, Read, Write};
+#[cfg(unix)]
 use std::time::Duration;
 
-use anyhow::{Result, anyhow};
+use anyhow::Result;
+#[cfg(unix)]
+use anyhow::anyhow;
 
 #[cfg(unix)]
 fn main() -> Result<()> {
