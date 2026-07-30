@@ -206,8 +206,13 @@ pub(crate) fn reduce(
         WizardInitializeCreate {
             tab_id,
             parent_path,
+            command_type,
         } => {
-            state.wizard_mut().initialize_create(tab_id, parent_path);
+            state.wizard_mut().initialize_create(
+                tab_id,
+                parent_path,
+                command_type,
+            );
             Task::none()
         },
         WizardInitializeEdit {
@@ -1110,7 +1115,7 @@ mod tests {
     use iced::Point;
     use otty_ui_term::settings::Settings;
 
-    use super::super::types::{CommandSpec, CustomCommand};
+    use super::super::types::{CommandSpec, CustomCommand, QuickLaunchType};
     use super::*;
 
     fn ctx(settings: &Settings) -> QuickLaunchCtx<'_> {
@@ -1256,7 +1261,11 @@ mod tests {
     #[test]
     fn given_wizard_field_update_when_reduced_then_editor_is_updated() {
         let mut state = QuickLaunchState::default();
-        state.wizard_mut().initialize_create(1, vec![]);
+        state.wizard_mut().initialize_create(
+            1,
+            vec![],
+            QuickLaunchType::Custom,
+        );
 
         let settings = Settings::default();
         let _task = reduce(
@@ -1275,7 +1284,11 @@ mod tests {
     #[test]
     fn given_wizard_save_with_empty_title_when_reduced_then_error_is_set() {
         let mut state = QuickLaunchState::default();
-        state.wizard_mut().initialize_create(1, vec![]);
+        state.wizard_mut().initialize_create(
+            1,
+            vec![],
+            QuickLaunchType::Custom,
+        );
 
         let settings = Settings::default();
         let _task = reduce(
@@ -1834,6 +1847,7 @@ mod tests {
             QuickLaunchIntent::WizardInitializeCreate {
                 tab_id: 10,
                 parent_path: vec![],
+                command_type: QuickLaunchType::Custom,
             },
             &ctx(&settings),
         );
@@ -1876,7 +1890,11 @@ mod tests {
     #[test]
     fn given_wizard_set_error_when_reduced_then_editor_error_is_set() {
         let mut state = QuickLaunchState::default();
-        state.wizard_mut().initialize_create(1, vec![]);
+        state.wizard_mut().initialize_create(
+            1,
+            vec![],
+            QuickLaunchType::Custom,
+        );
 
         let settings = Settings::default();
         let _task = reduce(
@@ -1896,7 +1914,11 @@ mod tests {
     fn given_wizard_select_command_type_in_create_mode_when_reduced_then_type_changes()
      {
         let mut state = QuickLaunchState::default();
-        state.wizard_mut().initialize_create(1, vec![]);
+        state.wizard_mut().initialize_create(
+            1,
+            vec![],
+            QuickLaunchType::Custom,
+        );
 
         let settings = Settings::default();
         let _task = reduce(
@@ -1922,7 +1944,11 @@ mod tests {
     #[test]
     fn given_wizard_update_program_when_reduced_then_program_field_changes() {
         let mut state = QuickLaunchState::default();
-        state.wizard_mut().initialize_create(1, vec![]);
+        state.wizard_mut().initialize_create(
+            1,
+            vec![],
+            QuickLaunchType::Custom,
+        );
 
         let settings = Settings::default();
         let _task = reduce(
@@ -1942,7 +1968,11 @@ mod tests {
     #[test]
     fn given_wizard_add_arg_when_reduced_then_arg_count_increases() {
         let mut state = QuickLaunchState::default();
-        state.wizard_mut().initialize_create(1, vec![]);
+        state.wizard_mut().initialize_create(
+            1,
+            vec![],
+            QuickLaunchType::Custom,
+        );
 
         let settings = Settings::default();
         let _task = reduce(
@@ -1959,7 +1989,11 @@ mod tests {
     #[test]
     fn given_wizard_add_env_when_reduced_then_env_count_increases() {
         let mut state = QuickLaunchState::default();
-        state.wizard_mut().initialize_create(1, vec![]);
+        state.wizard_mut().initialize_create(
+            1,
+            vec![],
+            QuickLaunchType::Custom,
+        );
 
         let settings = Settings::default();
         let _task = reduce(
@@ -2076,7 +2110,11 @@ mod tests {
     #[test]
     fn given_tab_closed_when_reduced_then_both_error_and_wizard_are_cleaned() {
         let mut state = QuickLaunchState::default();
-        state.wizard_mut().initialize_create(5, vec![]);
+        state.wizard_mut().initialize_create(
+            5,
+            vec![],
+            QuickLaunchType::Custom,
+        );
         state.set_error_tab(
             5,
             QuickLaunchErrorState::new(String::from("E"), String::from("msg")),
@@ -2119,7 +2157,11 @@ mod tests {
     #[test]
     fn given_wizard_with_filled_fields_when_save_then_command_created() {
         let mut state = QuickLaunchState::default();
-        state.wizard_mut().initialize_create(1, vec![]);
+        state.wizard_mut().initialize_create(
+            1,
+            vec![],
+            QuickLaunchType::Custom,
+        );
         if let Some(editor) = state.wizard_mut().editor_mut(1) {
             editor.set_title(String::from("NewCmd"));
             editor.set_program(String::from("bash"));
@@ -2143,7 +2185,11 @@ mod tests {
     #[test]
     fn given_wizard_ssh_fields_when_updated_then_values_change() {
         let mut state = QuickLaunchState::default();
-        state.wizard_mut().initialize_create(1, vec![]);
+        state.wizard_mut().initialize_create(
+            1,
+            vec![],
+            QuickLaunchType::Custom,
+        );
         if let Some(editor) = state.wizard_mut().editor_mut(1) {
             editor.set_command_type(super::super::types::QuickLaunchType::Ssh);
         }
@@ -2193,7 +2239,11 @@ mod tests {
     #[test]
     fn given_wizard_working_directory_when_updated_then_value_changes() {
         let mut state = QuickLaunchState::default();
-        state.wizard_mut().initialize_create(1, vec![]);
+        state.wizard_mut().initialize_create(
+            1,
+            vec![],
+            QuickLaunchType::Custom,
+        );
 
         let settings = Settings::default();
         let _task = reduce(
@@ -2213,7 +2263,11 @@ mod tests {
     #[test]
     fn given_wizard_remove_arg_when_reduced_then_arg_is_removed() {
         let mut state = QuickLaunchState::default();
-        state.wizard_mut().initialize_create(1, vec![]);
+        state.wizard_mut().initialize_create(
+            1,
+            vec![],
+            QuickLaunchType::Custom,
+        );
         if let Some(editor) = state.wizard_mut().editor_mut(1) {
             editor.add_arg();
             editor.add_arg();
@@ -2237,7 +2291,11 @@ mod tests {
     #[test]
     fn given_wizard_update_arg_when_reduced_then_arg_value_changes() {
         let mut state = QuickLaunchState::default();
-        state.wizard_mut().initialize_create(1, vec![]);
+        state.wizard_mut().initialize_create(
+            1,
+            vec![],
+            QuickLaunchType::Custom,
+        );
         if let Some(editor) = state.wizard_mut().editor_mut(1) {
             editor.add_arg();
         }
@@ -2261,7 +2319,11 @@ mod tests {
     #[test]
     fn given_wizard_remove_env_when_reduced_then_env_is_removed() {
         let mut state = QuickLaunchState::default();
-        state.wizard_mut().initialize_create(1, vec![]);
+        state.wizard_mut().initialize_create(
+            1,
+            vec![],
+            QuickLaunchType::Custom,
+        );
         if let Some(editor) = state.wizard_mut().editor_mut(1) {
             editor.add_env();
         }
@@ -2284,7 +2346,11 @@ mod tests {
     #[test]
     fn given_wizard_update_env_when_reduced_then_env_key_and_value_change() {
         let mut state = QuickLaunchState::default();
-        state.wizard_mut().initialize_create(1, vec![]);
+        state.wizard_mut().initialize_create(
+            1,
+            vec![],
+            QuickLaunchType::Custom,
+        );
         if let Some(editor) = state.wizard_mut().editor_mut(1) {
             editor.add_env();
         }
@@ -2318,7 +2384,11 @@ mod tests {
     #[test]
     fn given_wizard_ssh_extra_args_when_added_and_removed_then_list_updates() {
         let mut state = QuickLaunchState::default();
-        state.wizard_mut().initialize_create(1, vec![]);
+        state.wizard_mut().initialize_create(
+            1,
+            vec![],
+            QuickLaunchType::Custom,
+        );
         if let Some(editor) = state.wizard_mut().editor_mut(1) {
             editor.set_command_type(super::super::types::QuickLaunchType::Ssh);
         }

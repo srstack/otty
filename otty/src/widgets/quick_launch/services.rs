@@ -540,14 +540,15 @@ mod tests {
 
     #[test]
     fn given_empty_title_when_building_command_then_returns_title_required() {
-        let editor = WizardEditorState::new(vec![]);
+        let editor = WizardEditorState::new(vec![], QuickLaunchType::Custom);
         let result = build_command(&editor);
         assert!(matches!(result, Err(QuickLaunchWizardError::TitleRequired)));
     }
 
     #[test]
     fn given_custom_editor_when_building_command_then_returns_custom_launch() {
-        let mut editor = WizardEditorState::new(vec![]);
+        let mut editor =
+            WizardEditorState::new(vec![], QuickLaunchType::Custom);
         editor.set_title(String::from("Build"));
         editor.set_program(String::from("cargo"));
         editor.add_arg();
@@ -573,7 +574,8 @@ mod tests {
 
     #[test]
     fn given_invalid_ssh_port_when_building_command_then_returns_error() {
-        let mut editor = WizardEditorState::new(vec![]);
+        let mut editor =
+            WizardEditorState::new(vec![], QuickLaunchType::Custom);
         editor.set_title(String::from("SSH"));
         editor.set_command_type(QuickLaunchType::Ssh);
         editor.set_host(String::from("example.com"));

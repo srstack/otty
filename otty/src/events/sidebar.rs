@@ -23,11 +23,7 @@ fn handle_effect(app: &App, event: SidebarEffect) -> Task<AppEvent> {
         OpenSettingsTab => Task::done(AppEvent::Tabs(TabsEvent::Intent(
             TabsIntent::OpenSettingsTab,
         ))),
-        OpenTerminalTab => Task::done(AppEvent::Tabs(TabsEvent::Intent(
-            TabsIntent::OpenTerminalTab {
-                title: app.shell_session.name().to_string(),
-            },
-        ))),
+        OpenTerminalTab => open_terminal_tab_task(app),
         QuickLaunchHeaderCreateCommand => Task::done(AppEvent::QuickLaunch(
             QuickLaunchEvent::Intent(QuickLaunchIntent::HeaderCreateCommand),
         )),
@@ -37,5 +33,47 @@ fn handle_effect(app: &App, event: SidebarEffect) -> Task<AppEvent> {
         QuickLaunchResetInteractionState => Task::done(AppEvent::QuickLaunch(
             QuickLaunchEvent::Intent(QuickLaunchIntent::ResetInteractionState),
         )),
+    }
+}
+
+#[cfg(not(windows))]
+fn open_terminal_tab_task(app: &App) -> Task<AppEvent> {
+    Task::done(AppEvent::Tabs(TabsEvent::Intent(
+        TabsIntent::OpenTerminalTab {
+            title: app.shell_session.name().to_string(),
+        },
+    )))
+}
+
+/// Local sessions are unsupported on Windows; route new-tab requests to the
+/// quick launch wizard pre-selected to SSH instead.
+#[cfg(windows)]
+fn open_terminal_tab_task(_app: &App) -> Task<AppEvent> {
+    use crate::domain::quick_launch::WizardTabInit;
+    use crate::widgets::quick_launch::types::QuickLaunchType;
+
+    Task::done(AppEvent::Tabs(TabsEvent::Intent(
+        TabsIntent::OpenWizardTab {
+            title: String::from("New SSH Connection"),
+            init: WizardTabInit::Create {
+                parent_path: Vec::new(),
+                command_type: QuickLaunchType::Ssh,
+            },
+        },
+    )))
+}
+
+#[cfg(all(test, windows))]
+mod tests {
+    use super::*;
+    use crate::widgets::sidebar::SidebarEffect;
+
+    #[test]
+    fn given_windows_when_open_terminal_tab_then_ssh_wizard_opens() {
+        let (app, _) = App::new();
+
+        let task = handle_effect(&app, SidebarEffect::OpenTerminalTab);
+
+        assert_eq!(task.units(), 1);
     }
 }
