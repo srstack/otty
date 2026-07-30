@@ -6,8 +6,6 @@ use otty_ui_term::settings::{LocalSessionOptions, SessionKind};
 use super::errors::TerminalWorkspaceError;
 use super::types::ShellSession;
 
-const SHELL_INTEGRATIONS_DIR: &str = "otty";
-
 const OTTY_ZSH_SCRIPT: &str =
     include_str!("../../../../assets/shell-integrations/otty.zsh");
 const OTTY_BASH_SCRIPT: &str =
@@ -65,13 +63,7 @@ fn shell_name(shell_path: &str) -> String {
 }
 
 fn config_dir() -> PathBuf {
-    if let Ok(home) = env::var("HOME") {
-        return Path::new(&home)
-            .join(".config")
-            .join(SHELL_INTEGRATIONS_DIR);
-    }
-
-    env::temp_dir().join(SHELL_INTEGRATIONS_DIR)
+    crate::paths::config_dir()
 }
 
 fn setup_zsh_session(
@@ -152,10 +144,9 @@ mod tests {
 
     use otty_ui_term::settings::SessionKind;
 
-    use super::{
-        fallback_shell_session_with_shell, setup_bash_session,
-        setup_zsh_session,
-    };
+    use super::fallback_shell_session_with_shell;
+    #[cfg(unix)]
+    use super::{setup_bash_session, setup_zsh_session};
 
     struct TempDirGuard {
         path: PathBuf,

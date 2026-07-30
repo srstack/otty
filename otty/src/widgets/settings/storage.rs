@@ -78,14 +78,7 @@ fn save_settings_to_path(
 }
 
 fn settings_path() -> PathBuf {
-    if let Ok(home) = std::env::var("HOME") {
-        return Path::new(&home)
-            .join(".config")
-            .join("otty")
-            .join("settings.json");
-    }
-
-    std::env::temp_dir().join("otty").join("settings.json")
+    crate::paths::config_dir().join("settings.json")
 }
 
 fn write_atomic(path: &Path, payload: &[u8]) -> Result<(), std::io::Error> {

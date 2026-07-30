@@ -327,13 +327,15 @@ fn is_executable_path(path: &Path) -> bool {
 }
 
 fn expand_tilde(path: &str) -> String {
+    let Some(home) = crate::paths::home_dir() else {
+        return path.to_string();
+    };
+
     if path == "~" {
-        return std::env::var("HOME").unwrap_or_else(|_| String::from("~"));
+        return home;
     }
 
-    if let Some(rest) = path.strip_prefix("~/")
-        && let Ok(home) = std::env::var("HOME")
-    {
+    if let Some(rest) = path.strip_prefix("~/") {
         return format!("{home}/{rest}");
     }
 

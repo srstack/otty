@@ -11,6 +11,7 @@ mod geometry;
 mod guards;
 mod icons;
 mod layout;
+mod paths;
 mod services;
 mod state;
 mod style;
