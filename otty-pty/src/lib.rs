@@ -12,6 +12,8 @@ mod size;
 mod ssh;
 #[cfg(unix)]
 mod unix;
+#[cfg(windows)]
+mod windows;
 
 use std::process::ExitStatus;
 
@@ -19,6 +21,8 @@ use mio::Token;
 pub use ssh::{SSHAuth, SSHSession, SSHSessionBuilder, ssh};
 #[cfg(unix)]
 pub use unix::{LocalSession, LocalSessionBuilder, local};
+#[cfg(windows)]
+pub use windows::{LocalSession, LocalSessionBuilder, local};
 
 pub use crate::errors::SessionError;
 pub use crate::size::PtySize;
