@@ -76,8 +76,6 @@ fn init_logging() {
 
     builder.format_timestamp_millis().init();
 
-    log::info!("otty starting (diag build 4 - ssh rearm fix)");
-
     let default_hook = std::panic::take_hook();
     std::panic::set_hook(Box::new(move |info| {
         log::error!("thread panicked: {info}");
