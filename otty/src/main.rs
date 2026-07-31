@@ -27,9 +27,7 @@ use crate::fonts::TERM_FONT_JET_BRAINS_BYTES;
 use crate::icons::APP_ICON_DATA;
 
 fn main() -> iced::Result {
-    env_logger::Builder::from_env(Env::default().default_filter_or("info"))
-        .format_timestamp_millis()
-        .init();
+    init_logging();
 
     iced::application(App::new, App::update, App::view)
         .title(App::title)
@@ -52,4 +50,32 @@ fn main() -> iced::Result {
         .font(TERM_FONT_JET_BRAINS_BYTES)
         .subscription(App::subscription)
         .run()
+}
+
+/// Initialize logging; when OTTY_LOG_FILE is set, logs (and thread panics)
+/// go to that file at debug level — the only observable channel on Windows,
+/// where the GUI has no console attached.
+fn init_logging() {
+    let mut builder =
+        env_logger::Builder::from_env(Env::default().default_filter_or("info"));
+
+    if let Ok(path) = std::env::var("OTTY_LOG_FILE") {
+        match std::fs::File::create(&path) {
+            Ok(file) => {
+                builder.target(env_logger::Target::Pipe(Box::new(file)));
+                builder.filter_level(log::LevelFilter::Debug);
+            },
+            Err(err) => {
+                eprintln!("failed to create OTTY_LOG_FILE {path}: {err}");
+            },
+        }
+    }
+
+    builder.format_timestamp_millis().init();
+
+    let default_hook = std::panic::take_hook();
+    std::panic::set_hook(Box::new(move |info| {
+        log::error!("thread panicked: {info}");
+        default_hook(info);
+    }));
 }

@@ -114,13 +114,20 @@ impl Session for SSHSession {
         match self.channel.read(buf) {
             // Channel receive the EOF so we need to notify of exit
             Ok(0) => {
+                log::debug!("ssh read: channel EOF");
                 let _ = self.try_get_exit_status();
                 self.notify_exit()?;
                 Ok(0)
             },
-            Ok(n) => Ok(n),
+            Ok(n) => {
+                log::trace!("ssh read: {n} bytes");
+                Ok(n)
+            },
             Err(e) if e.kind() == io::ErrorKind::WouldBlock => Ok(0),
-            Err(e) => Err(SessionError::IO(e)),
+            Err(e) => {
+                log::debug!("ssh read error: {e}");
+                Err(SessionError::IO(e))
+            },
         }
     }
 
@@ -130,10 +137,20 @@ impl Session for SSHSession {
         match self.channel.write(input) {
             Ok(n) => {
                 let _ = self.channel.flush();
+                log::trace!("ssh write: {n}/{} bytes", input.len());
                 Ok(n)
             },
-            Err(ref e) if e.kind() == io::ErrorKind::WouldBlock => Ok(0),
-            Err(e) => Err(SessionError::IO(e)),
+            Err(ref e) if e.kind() == io::ErrorKind::WouldBlock => {
+                log::debug!(
+                    "ssh write: would block ({} bytes pending)",
+                    input.len()
+                );
+                Ok(0)
+            },
+            Err(e) => {
+                log::debug!("ssh write error: {e}");
+                Err(SessionError::IO(e))
+            },
         }
     }
 

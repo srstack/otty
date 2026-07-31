@@ -181,6 +181,7 @@ impl Runtime {
             PTY_IO_TOKEN,
             PTY_CHILD_TOKEN,
         )?;
+        log::debug!("runtime: session registered, starting poll loop");
 
         let mut shutdown_requested = false;
         let mut exit_detected = false;
@@ -232,6 +233,7 @@ impl Runtime {
             }
 
             if desired_interest != interest {
+                log::debug!("runtime: interest change to {desired_interest:?}");
                 driver.reregister(
                     self.poll.registry(),
                     desired_interest,
@@ -242,6 +244,10 @@ impl Runtime {
             }
 
             if exit_detected || shutdown_requested {
+                log::debug!(
+                    "runtime: loop exit (exit_detected={exit_detected}, \
+shutdown_requested={shutdown_requested})"
+                );
                 break;
             }
         }
