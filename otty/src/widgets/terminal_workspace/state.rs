@@ -580,20 +580,24 @@ impl TerminalTabState {
 
 #[cfg(test)]
 mod tests {
+    #[cfg(unix)]
     use std::process::ExitStatus;
 
     use iced::widget::pane_grid;
     use iced::{Point, Size};
+    #[cfg(unix)]
     use otty_ui_term::settings::{LocalSessionOptions, SessionKind, Settings};
 
-    use super::{PaneContextMenuState, StateCommand, TerminalTabState};
+    use super::PaneContextMenuState;
+    #[cfg(unix)]
+    use super::{StateCommand, TerminalTabState};
+    #[cfg(unix)]
     use crate::widgets::terminal_workspace::types::TerminalKind;
 
     #[cfg(unix)]
     const TEST_SHELL_PATH: &str = "/bin/sh";
-    #[cfg(target_os = "windows")]
-    const TEST_SHELL_PATH: &str = "cmd.exe";
 
+    #[cfg(unix)]
     fn test_settings() -> Settings {
         let mut settings = Settings::default();
         settings.backend = settings.backend.clone().with_session(
@@ -604,6 +608,7 @@ mod tests {
         settings
     }
 
+    #[cfg(unix)]
     fn build_terminal_state(default_title: &str) -> TerminalTabState {
         let (state, _task) = TerminalTabState::new(
             1,
@@ -616,19 +621,10 @@ mod tests {
         state
     }
 
-    #[allow(dead_code)]
+    #[cfg(unix)]
     fn success_exit_status() -> ExitStatus {
-        #[cfg(unix)]
-        {
-            use std::os::unix::process::ExitStatusExt;
-            ExitStatus::from_raw(0)
-        }
-
-        #[cfg(target_os = "windows")]
-        {
-            use std::os::windows::process::ExitStatusExt;
-            ExitStatus::from_raw(0)
-        }
+        use std::os::unix::process::ExitStatusExt;
+        ExitStatus::from_raw(0)
     }
 
     #[test]
@@ -648,6 +644,8 @@ mod tests {
         let _focus_target = menu_state.focus_target();
     }
 
+    // requires a working local PTY backend; unsupported on Windows until ConPTY lands
+    #[cfg(unix)]
     #[test]
     fn given_new_state_when_constructed_then_initial_terminal_is_focused() {
         let state = build_terminal_state("Shell");
@@ -665,6 +663,8 @@ mod tests {
         assert!(state.selected_block().is_none());
     }
 
+    // requires a working local PTY backend; unsupported on Windows until ConPTY lands
+    #[cfg(unix)]
     #[test]
     fn given_selected_block_when_cleared_for_matching_terminal_then_selection_removed()
      {
@@ -678,6 +678,8 @@ mod tests {
         assert!(state.selected_block().is_none());
     }
 
+    // requires a working local PTY backend; unsupported on Windows until ConPTY lands
+    #[cfg(unix)]
     #[test]
     fn given_existing_pane_when_split_then_new_terminal_is_added_and_focused() {
         let mut state = build_terminal_state("Shell");
@@ -691,6 +693,8 @@ mod tests {
         assert_eq!(state.focused_terminal_id(), Some(11));
     }
 
+    // requires a working local PTY backend; unsupported on Windows until ConPTY lands
+    #[cfg(unix)]
     #[test]
     fn given_selected_block_on_source_when_split_then_selection_is_cleared() {
         let mut state = build_terminal_state("Shell");
@@ -703,6 +707,8 @@ mod tests {
         assert!(matches!(command, StateCommand::Batch(_)));
     }
 
+    // requires a working local PTY backend; unsupported on Windows until ConPTY lands
+    #[cfg(unix)]
     #[test]
     fn given_single_pane_when_close_requested_then_state_keeps_terminal() {
         let mut state = build_terminal_state("Shell");
@@ -715,6 +721,8 @@ mod tests {
         assert_eq!(state.focus(), Some(pane));
     }
 
+    // requires a working local PTY backend; unsupported on Windows until ConPTY lands
+    #[cfg(unix)]
     #[test]
     fn given_two_panes_when_focused_pane_closed_then_focus_moves_to_sibling() {
         let mut state = build_terminal_state("Shell");
@@ -733,6 +741,8 @@ mod tests {
         assert!(state.selected_block().is_none());
     }
 
+    // requires a working local PTY backend; unsupported on Windows until ConPTY lands
+    #[cfg(unix)]
     #[test]
     fn given_unknown_terminal_when_open_context_menu_then_state_is_unchanged() {
         let mut state = build_terminal_state("Shell");
@@ -749,6 +759,8 @@ mod tests {
         assert_eq!(state.focus(), Some(pane));
     }
 
+    // requires a working local PTY backend; unsupported on Windows until ConPTY lands
+    #[cfg(unix)]
     #[test]
     fn given_valid_terminal_when_open_and_close_context_menu_then_menu_toggles()
     {
@@ -775,6 +787,8 @@ mod tests {
         assert_eq!(state.focus(), Some(pane));
     }
 
+    // requires a working local PTY backend; unsupported on Windows until ConPTY lands
+    #[cfg(unix)]
     #[test]
     fn given_title_events_when_handled_then_tab_title_updates_and_resets() {
         let mut state = build_terminal_state("Shell");
@@ -791,6 +805,8 @@ mod tests {
         assert_eq!(state.title(), "Shell");
     }
 
+    // requires a working local PTY backend; unsupported on Windows until ConPTY lands
+    #[cfg(unix)]
     #[test]
     fn given_secondary_terminal_shutdown_when_handled_then_terminal_is_closed()
     {
@@ -809,6 +825,8 @@ mod tests {
         assert_eq!(state.panes().len(), 1);
     }
 
+    // requires a working local PTY backend; unsupported on Windows until ConPTY lands
+    #[cfg(unix)]
     #[test]
     fn given_grid_cursor_when_updated_and_resized_then_position_is_clamped() {
         let mut state = build_terminal_state("Shell");

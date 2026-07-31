@@ -443,6 +443,11 @@ mod tests {
     use super::*;
     use crate::widgets::quick_launch::types::{CustomCommand, SshCommand};
 
+    #[cfg(unix)]
+    const EXISTING_PROGRAM: &str = "bash";
+    #[cfg(windows)]
+    const EXISTING_PROGRAM: &str = "cmd";
+
     #[test]
     fn given_empty_program_when_validating_then_error_returned() {
         let cmd = QuickLaunch {
@@ -465,7 +470,7 @@ mod tests {
             title: String::from("Good"),
             spec: CommandSpec::Custom {
                 custom: CustomCommand {
-                    program: String::from("bash"),
+                    program: String::from(EXISTING_PROGRAM),
                     args: Vec::new(),
                     env: Vec::new(),
                     working_directory: None,
