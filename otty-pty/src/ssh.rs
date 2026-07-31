@@ -12,7 +12,8 @@ use std::time::{Duration, Instant};
 use log::debug;
 use mio::{Events, Interest, Poll, Token, Waker};
 use ssh2::{
-    Channel, Error as SshError, ErrorCode, ExtendedData, Session as Ssh2Session,
+    Channel, Error as SshError, ErrorCode, ExtendedData,
+    Session as Ssh2Session, TraceFlags,
 };
 
 use crate::{Pollable, PtySize, Session, SessionError};
@@ -312,6 +313,17 @@ impl SSHSessionBuilder {
         stream.set_nodelay(true)?;
 
         let mut session = Ssh2Session::new()?;
+
+        // Diagnostic tracing (stderr), enabled via OTTY_SSH_TRACE=1.
+        if std::env::var_os("OTTY_SSH_TRACE").is_some() {
+            session.trace(
+                TraceFlags::KEX
+                    | TraceFlags::TRANS
+                    | TraceFlags::ERROR
+                    | TraceFlags::SOCKET,
+            );
+        }
+
         session.set_tcp_stream(stream.try_clone()?);
         session.set_blocking(false);
         executor.exec("ssh handshake", || session.handshake())?;
