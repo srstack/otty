@@ -123,7 +123,10 @@ impl Session for SSHSession {
                 log::trace!("ssh read: {n} bytes");
                 Ok(n)
             },
-            Err(e) if e.kind() == io::ErrorKind::WouldBlock => Ok(0),
+            Err(e) if e.kind() == io::ErrorKind::WouldBlock => {
+                log::trace!("ssh read: would block");
+                Ok(0)
+            },
             Err(e) => {
                 log::debug!("ssh read error: {e}");
                 Err(SessionError::IO(e))

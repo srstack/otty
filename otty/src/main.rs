@@ -64,6 +64,9 @@ fn init_logging() {
             Ok(file) => {
                 builder.target(env_logger::Target::Pipe(Box::new(file)));
                 builder.filter_level(log::LevelFilter::Debug);
+                // Verbose tracing for otty's own modules only; keeps wgpu
+                // and other dependencies at debug level.
+                builder.filter(Some("otty"), log::LevelFilter::Trace);
             },
             Err(err) => {
                 eprintln!("failed to create OTTY_LOG_FILE {path}: {err}");

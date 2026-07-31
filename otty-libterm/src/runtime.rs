@@ -198,7 +198,18 @@ impl Runtime {
 
             self.poll_once(timeout)?;
 
+            log::trace!(
+                "runtime: poll returned {} event(s)",
+                self.events.iter().count()
+            );
+
             for event in self.events.iter() {
+                log::trace!(
+                    "runtime: event token={:?} readable={} writable={}",
+                    event.token(),
+                    event.is_readable(),
+                    event.is_writable()
+                );
                 match event.token() {
                     PTY_IO_TOKEN => {
                         if event.is_readable() {
