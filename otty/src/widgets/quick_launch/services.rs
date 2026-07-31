@@ -188,7 +188,7 @@ fn ssh_session(
         .identity_file()
         .filter(|path| !path.trim().is_empty())
         .map(|path| SSHAuth::KeyFile {
-            private_key_path: path.to_string(),
+            private_key_path: expand_tilde(path),
             passphrase: None,
         })
         .or_else(|| {
@@ -392,7 +392,32 @@ fn expand_tilde(path: &str) -> String {
         return format!("{home}/{rest}");
     }
 
+    if let Some(rest) = path.strip_prefix("~\\") {
+        return format!("{home}/{rest}");
+    }
+
     path.to_string()
+}
+
+/// Normalize a user-entered filesystem path: trims whitespace, strips one
+/// pair of surrounding quotes (Windows "copy as path" produces them), and
+/// expands a leading `~` (`~/` or `~\`) to the user's home directory.
+fn sanitize_path_input(input: &str) -> String {
+    let trimmed = input.trim();
+
+    let bytes = trimmed.as_bytes();
+    let unquoted = match (bytes.first(), bytes.last()) {
+        (Some(first), Some(last))
+            if trimmed.len() >= 2
+                && first == last
+                && (*first == b'"' || *first == b'\'') =>
+        {
+            &trimmed[1..trimmed.len() - 1]
+        },
+        _ => trimmed,
+    };
+
+    expand_tilde(unquoted)
 }
 
 /// Build a domain quick launch command from editor draft state.
@@ -409,7 +434,7 @@ pub(crate) fn build_command(
             let Some(custom) = editor.custom() else {
                 return Err(QuickLaunchWizardError::MissingCustomDraft);
             };
-            let program = custom.program().trim();
+            let program = sanitize_path_input(custom.program());
             if program.is_empty() {
                 return Err(QuickLaunchWizardError::ProgramRequired);
             }
@@ -429,17 +454,18 @@ pub(crate) fn build_command(
                 })
                 .collect::<Vec<_>>();
 
-            let working_directory = custom.working_directory().trim();
+            let working_directory =
+                sanitize_path_input(custom.working_directory());
 
             CommandSpec::Custom {
                 custom: CustomCommand {
-                    program: program.to_string(),
+                    program,
                     args: custom.args().to_vec(),
                     env,
                     working_directory: if working_directory.is_empty() {
                         None
                     } else {
-                        Some(working_directory.to_string())
+                        Some(working_directory)
                     },
                 },
             }
@@ -466,7 +492,8 @@ pub(crate) fn build_command(
                     host: host.to_string(),
                     port,
                     user: optional_string(ssh.user()),
-                    identity_file: optional_string(ssh.identity_file()),
+                    identity_file: optional_string(ssh.identity_file())
+                        .map(|value| sanitize_path_input(&value)),
                     extra_args: ssh.extra_args().to_vec(),
                 },
             }
@@ -791,5 +818,152 @@ mod tests {
 
         let result = build_command(&editor);
         assert!(matches!(result, Err(QuickLaunchWizardError::InvalidPort)));
+    }
+
+    #[test]
+    fn given_double_quoted_path_when_sanitizing_then_quotes_are_stripped() {
+        assert_eq!(
+            sanitize_path_input("\"C:\\Users\\alice\\key\""),
+            "C:\\Users\\alice\\key"
+        );
+    }
+
+    #[test]
+    fn given_single_quoted_path_when_sanitizing_then_quotes_are_stripped() {
+        assert_eq!(
+            sanitize_path_input("'C:\\keys\\id_rsa'"),
+            "C:\\keys\\id_rsa"
+        );
+    }
+
+    #[test]
+    fn given_unbalanced_leading_quote_when_sanitizing_then_path_untouched() {
+        assert_eq!(sanitize_path_input("\"C:\\keys"), "\"C:\\keys");
+    }
+
+    #[test]
+    fn given_unquoted_path_when_sanitizing_then_whitespace_is_trimmed() {
+        assert_eq!(sanitize_path_input("  /tmp/key  "), "/tmp/key");
+    }
+
+    #[test]
+    fn given_blank_path_when_sanitizing_then_empty_returned() {
+        assert_eq!(sanitize_path_input("   "), "");
+    }
+
+    #[test]
+    fn given_quoted_path_with_spaces_when_sanitizing_then_spaces_preserved() {
+        assert_eq!(
+            sanitize_path_input("\"C:\\Program Files\\key\""),
+            "C:\\Program Files\\key"
+        );
+    }
+
+    #[test]
+    fn given_quoted_tilde_path_when_sanitizing_then_tilde_is_expanded() {
+        let home =
+            crate::paths::home_dir().expect("home directory should be known");
+
+        assert_eq!(
+            sanitize_path_input("\"~/.ssh/id_rsa\""),
+            format!("{home}/.ssh/id_rsa")
+        );
+    }
+
+    #[test]
+    fn given_backslash_tilde_path_when_expanding_then_home_is_prepended() {
+        let home =
+            crate::paths::home_dir().expect("home directory should be known");
+
+        let expanded = expand_tilde("~\\rest");
+
+        assert!(expanded.starts_with(&home));
+        assert!(expanded.ends_with("rest"));
+    }
+
+    #[test]
+    fn given_forward_slash_tilde_path_when_expanding_then_home_is_prepended() {
+        let home =
+            crate::paths::home_dir().expect("home directory should be known");
+
+        assert_eq!(expand_tilde("~/rest"), format!("{home}/rest"));
+    }
+
+    #[test]
+    fn given_absolute_windows_path_when_expanding_then_path_unchanged() {
+        assert_eq!(expand_tilde("C:\\Users\\x"), "C:\\Users\\x");
+    }
+
+    #[test]
+    fn given_relative_path_when_expanding_then_path_unchanged() {
+        assert_eq!(expand_tilde("keys/id_rsa"), "keys/id_rsa");
+    }
+
+    #[test]
+    fn given_tilde_identity_when_building_session_then_path_is_expanded() {
+        let ssh = SshCommand {
+            host: String::from("example.com"),
+            port: 22,
+            user: None,
+            identity_file: Some(String::from("~/.ssh/otty-test-key")),
+            extra_args: Vec::new(),
+        };
+        let cancel = Arc::new(AtomicBool::new(false));
+
+        let options = ssh_session(&ssh, &cancel);
+
+        let SSHAuth::KeyFile {
+            private_key_path, ..
+        } = options.auth()
+        else {
+            panic!("expected key file auth");
+        };
+        assert!(!private_key_path.contains('~'));
+        assert!(
+            private_key_path.ends_with(".ssh/otty-test-key")
+                || private_key_path.ends_with(".ssh\\otty-test-key")
+        );
+    }
+
+    #[test]
+    fn given_absolute_identity_when_building_session_then_path_is_preserved() {
+        let ssh = SshCommand {
+            host: String::from("example.com"),
+            port: 22,
+            user: None,
+            identity_file: Some(String::from("C:\\keys\\id_rsa")),
+            extra_args: Vec::new(),
+        };
+        let cancel = Arc::new(AtomicBool::new(false));
+
+        let options = ssh_session(&ssh, &cancel);
+
+        let SSHAuth::KeyFile {
+            private_key_path, ..
+        } = options.auth()
+        else {
+            panic!("expected key file auth");
+        };
+        assert_eq!(private_key_path, "C:\\keys\\id_rsa");
+    }
+
+    #[test]
+    fn given_quoted_ssh_identity_when_building_command_then_path_sanitized() {
+        let mut editor = WizardEditorState::new(vec![], QuickLaunchType::Ssh);
+        editor.set_title(String::from("SSH"));
+        editor.set_host(String::from("example.com"));
+        editor.set_identity_file(String::from("\"~/.ssh/id_rsa\""));
+
+        let quick_launch =
+            build_command(&editor).expect("build should succeed");
+
+        let CommandSpec::Ssh { ssh } = &quick_launch.spec else {
+            panic!("expected ssh command");
+        };
+        let identity =
+            ssh.identity_file().expect("identity file should be set");
+        assert!(!identity.starts_with('"'));
+        assert!(!identity.contains('~'));
+        assert!(identity.ends_with(".ssh/id_rsa"));
     }
 }
