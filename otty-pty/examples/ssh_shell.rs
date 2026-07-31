@@ -25,6 +25,11 @@ fn main() -> Result<(), Box<dyn Error>> {
 
     if let Ok(password) = env::var("SSH_EXAMPLE_PASSWORD") {
         builder = builder.with_auth(SSHAuth::Password(password));
+    } else if let Ok(keyfile) = env::var("SSH_EXAMPLE_KEYFILE") {
+        builder = builder.with_auth(SSHAuth::KeyFile {
+            private_key_path: keyfile,
+            passphrase: None,
+        });
     }
 
     let mut session = builder.spawn()?;
