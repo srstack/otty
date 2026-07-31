@@ -270,16 +270,63 @@ fn find_program_path(program: &str) -> Result<PathBuf, QuickLaunchError> {
         .map(|value| std::env::split_paths(&value).collect())
         .unwrap_or_default();
 
+    let exts = executable_extensions();
+
     for dir in paths {
-        let candidate = dir.join(program);
-        if is_executable_path(&candidate) {
-            return Ok(candidate);
+        for candidate in program_candidates(&dir, program, &exts) {
+            if is_executable_path(&candidate) {
+                return Ok(candidate);
+            }
         }
     }
 
     Err(QuickLaunchError::Validation {
         message: format!("Program not found in PATH: {program}"),
     })
+}
+
+/// Candidate paths for a bare program name within one PATH directory.
+/// On Windows, PATHEXT extensions are appended when the program has no
+/// recognized extension yet; unix always yields the single direct path.
+fn program_candidates(
+    dir: &Path,
+    program: &str,
+    exts: &[String],
+) -> Vec<PathBuf> {
+    let mut candidates = vec![dir.join(program)];
+
+    let lower = program.to_ascii_lowercase();
+    let has_known_ext = exts
+        .iter()
+        .any(|ext| lower.ends_with(&ext.to_ascii_lowercase()));
+
+    if !has_known_ext {
+        candidates
+            .extend(exts.iter().map(|ext| dir.join(format!("{program}{ext}"))));
+    }
+
+    candidates
+}
+
+/// Executable extensions consulted during PATH lookup (Windows PATHEXT).
+#[cfg(windows)]
+fn executable_extensions() -> Vec<String> {
+    const DEFAULT_PATHEXT: [&str; 4] = [".COM", ".EXE", ".BAT", ".CMD"];
+
+    match std::env::var("PATHEXT") {
+        Ok(value) => value
+            .split(';')
+            .filter(|ext| !ext.is_empty())
+            .map(ToString::to_string)
+            .collect(),
+        Err(_) => DEFAULT_PATHEXT.iter().map(ToString::to_string).collect(),
+    }
+}
+
+/// Executable extensions consulted during PATH lookup (none on unix).
+#[cfg(not(windows))]
+fn executable_extensions() -> Vec<String> {
+    Vec::new()
 }
 
 fn validate_program_path(
@@ -575,6 +622,53 @@ mod tests {
         assert_eq!(custom.env()[0].key(), "RUST_LOG");
         assert_eq!(custom.env()[0].value(), "debug");
         assert_eq!(custom.working_directory(), Some("/tmp/project"));
+    }
+
+    #[test]
+    fn given_no_exts_when_program_candidates_then_yields_direct_path_only() {
+        let dir = Path::new("/usr/bin");
+        let candidates = program_candidates(dir, "bash", &[]);
+
+        assert_eq!(candidates, vec![dir.join("bash")]);
+    }
+
+    #[test]
+    fn given_exts_and_bare_program_when_program_candidates_then_appends_exts() {
+        let dir = Path::new("C:/Windows/System32");
+        let exts = vec![String::from(".EXE"), String::from(".BAT")];
+        let candidates = program_candidates(dir, "cmd", &exts);
+
+        assert_eq!(
+            candidates,
+            vec![dir.join("cmd"), dir.join("cmd.EXE"), dir.join("cmd.BAT"),]
+        );
+    }
+
+    #[test]
+    fn given_program_with_known_ext_when_program_candidates_then_no_double_ext()
+    {
+        let dir = Path::new("C:/tools");
+        let exts = vec![String::from(".exe"), String::from(".bat")];
+        let candidates = program_candidates(dir, "pwsh.EXE", &exts);
+
+        assert_eq!(candidates, vec![dir.join("pwsh.EXE")]);
+    }
+
+    #[test]
+    fn given_program_with_unknown_ext_when_program_candidates_then_appends_exts()
+     {
+        let dir = Path::new("C:/tools");
+        let exts = vec![String::from(".COM"), String::from(".EXE")];
+        let candidates = program_candidates(dir, "script.sh", &exts);
+
+        assert_eq!(
+            candidates,
+            vec![
+                dir.join("script.sh"),
+                dir.join("script.sh.COM"),
+                dir.join("script.sh.EXE"),
+            ]
+        );
     }
 
     #[test]
