@@ -191,6 +191,12 @@ fn ssh_session(
             private_key_path: path.to_string(),
             passphrase: None,
         })
+        .or_else(|| {
+            default_identity_file().map(|path| SSHAuth::KeyFile {
+                private_key_path: path.display().to_string(),
+                passphrase: None,
+            })
+        })
         .unwrap_or_else(|| SSHAuth::Password(String::new()));
 
     SSHSessionOptions::default()
@@ -482,8 +488,27 @@ fn optional_string(value: &str) -> Option<String> {
     }
 }
 
+/// Default SSH identity candidates in OpenSSH order.
+const DEFAULT_IDENTITY_FILES: [&str; 4] =
+    ["id_rsa", "id_ecdsa", "id_ed25519", "id_dsa"];
+
+/// First existing default SSH identity file under the user's `~/.ssh`.
+fn default_identity_file() -> Option<PathBuf> {
+    let home = crate::paths::home_dir()?;
+    default_identity_file_in(&PathBuf::from(home).join(".ssh"))
+}
+
+/// First existing default identity file within the given ssh directory.
+fn default_identity_file_in(ssh_dir: &Path) -> Option<PathBuf> {
+    DEFAULT_IDENTITY_FILES
+        .iter()
+        .map(|name| ssh_dir.join(name))
+        .find(|path| path.is_file())
+}
+
 #[cfg(test)]
 mod tests {
+    use std::fs;
     use std::sync::Arc;
     use std::sync::atomic::AtomicBool;
 
@@ -669,6 +694,90 @@ mod tests {
                 dir.join("script.sh.EXE"),
             ]
         );
+    }
+
+    #[test]
+    fn given_multiple_default_identities_when_probing_then_openssh_order_wins()
+    {
+        let root = test_temp_dir("order_wins");
+        fs::write(root.join("id_rsa"), "rsa-key")
+            .expect("id_rsa should be written");
+        fs::write(root.join("id_ed25519"), "ed25519-key")
+            .expect("id_ed25519 should be written");
+
+        let probed = default_identity_file_in(&root);
+
+        assert_eq!(probed, Some(root.join("id_rsa")));
+
+        fs::remove_dir_all(&root)
+            .expect("temporary directory should be removed");
+    }
+
+    #[test]
+    fn given_only_ed25519_when_probing_then_it_is_returned() {
+        let root = test_temp_dir("only_ed25519");
+        fs::write(root.join("id_ed25519"), "ed25519-key")
+            .expect("id_ed25519 should be written");
+
+        let probed = default_identity_file_in(&root);
+
+        assert_eq!(probed, Some(root.join("id_ed25519")));
+
+        fs::remove_dir_all(&root)
+            .expect("temporary directory should be removed");
+    }
+
+    #[test]
+    fn given_empty_ssh_dir_when_probing_then_none_returned() {
+        let root = test_temp_dir("empty_dir");
+
+        let probed = default_identity_file_in(&root);
+
+        assert_eq!(probed, None);
+
+        fs::remove_dir_all(&root)
+            .expect("temporary directory should be removed");
+    }
+
+    #[test]
+    fn given_nonexistent_ssh_dir_when_probing_then_none_returned() {
+        let root = std::env::temp_dir()
+            .join(format!("otty-quick-launch-missing-{}", std::process::id()));
+
+        let probed = default_identity_file_in(&root);
+
+        assert_eq!(probed, None);
+    }
+
+    #[test]
+    fn given_identity_as_directory_when_probing_then_it_is_skipped() {
+        let root = test_temp_dir("dir_identity");
+        fs::create_dir_all(root.join("id_rsa"))
+            .expect("id_rsa directory should be created");
+        fs::write(root.join("id_ecdsa"), "ecdsa-key")
+            .expect("id_ecdsa should be written");
+
+        let probed = default_identity_file_in(&root);
+
+        assert_eq!(probed, Some(root.join("id_ecdsa")));
+
+        fs::remove_dir_all(&root)
+            .expect("temporary directory should be removed");
+    }
+
+    fn test_temp_dir(test_name: &str) -> std::path::PathBuf {
+        let stamp = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .expect("clock should be monotonic")
+            .as_nanos();
+        let dir = std::env::temp_dir().join(format!(
+            "otty-quick-launch-{test_name}-{stamp}-{}",
+            std::process::id()
+        ));
+
+        fs::create_dir_all(&dir)
+            .expect("temporary directory should be created");
+        dir
     }
 
     #[test]
