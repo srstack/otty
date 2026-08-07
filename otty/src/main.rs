@@ -1,6 +1,12 @@
 // Allow dead_code during incremental build: views, models, and accessors are
 // defined ahead of full view composition (wired in Phase 4/5).
 #![allow(dead_code)]
+// Release builds on Windows are GUI apps: no console window on launch.
+// Debug builds keep the console so logs stay visible.
+#![cfg_attr(
+    all(target_os = "windows", not(debug_assertions)),
+    windows_subsystem = "windows"
+)]
 
 mod app;
 mod components;
