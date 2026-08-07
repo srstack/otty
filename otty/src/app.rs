@@ -46,6 +46,7 @@ pub(crate) struct App {
 impl App {
     /// Initialize the application and return the first task.
     pub(crate) fn new() -> (Self, Task<AppEvent>) {
+        crate::widgets::settings::storage::ensure_settings_file();
         let settings = SettingsWidget::load();
         let mut theme_manager = ThemeManager::new();
         let initial_settings = settings.settings_data().clone();

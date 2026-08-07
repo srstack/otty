@@ -58,6 +58,7 @@ pub(crate) enum QuickLaunchIntent {
     WizardInitializeCreate {
         tab_id: u64,
         parent_path: NodePath,
+        command_type: QuickLaunchType,
     },
     WizardInitializeEdit {
         tab_id: u64,

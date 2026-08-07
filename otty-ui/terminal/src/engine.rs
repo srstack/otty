@@ -107,17 +107,24 @@ impl EngineInner {
     }
 
     fn spawn(self) -> std::thread::JoinHandle<Result<()>> {
-        std::thread::spawn(|| {
-            match self {
+        std::thread::spawn(move || {
+            let result = match self {
                 Self::Local((mut runtime, mut engine, ..)) => {
-                    runtime.run(&mut engine, ())?
+                    runtime.run(&mut engine, ()).map_err(Into::into)
                 },
                 Self::Ssh((mut runtime, mut engine, ..)) => {
-                    runtime.run(&mut engine, ())?
+                    runtime.run(&mut engine, ()).map_err(Into::into)
+                },
+            };
+
+            match &result {
+                Ok(()) => log::debug!("terminal runtime exited cleanly"),
+                Err(err) => {
+                    log::error!("terminal runtime exited with error: {err}")
                 },
             }
 
-            Ok(())
+            result
         })
     }
 

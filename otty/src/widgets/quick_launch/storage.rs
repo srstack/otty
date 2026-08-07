@@ -1,4 +1,4 @@
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 
 use super::errors::QuickLaunchError;
 use super::state::QuickLaunchState;
@@ -6,15 +6,7 @@ use super::types::QuickLaunchFile;
 
 /// Return the path to the quick launches JSON file.
 fn quick_launches_path() -> PathBuf {
-    if let Ok(home) = std::env::var("HOME") {
-        return Path::new(&home)
-            .join(".config")
-            .join("otty")
-            .join("quick_launches.json");
-    }
-    std::env::temp_dir()
-        .join("otty")
-        .join("quick_launches.json")
+    crate::paths::config_dir().join("quick_launches.json")
 }
 
 /// Load quick launches from disk.

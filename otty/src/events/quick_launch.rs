@@ -3,6 +3,7 @@ use iced::Task;
 use super::AppEvent;
 use crate::app::App;
 use crate::domain::quick_launch::WizardTabInit;
+use crate::widgets::quick_launch::types::QuickLaunchType;
 use crate::widgets::quick_launch::{
     QuickLaunchCtx, QuickLaunchEffect, QuickLaunchEvent, QuickLaunchIntent,
 };
@@ -42,7 +43,10 @@ fn handle_effect(effect: QuickLaunchEffect) -> Task<AppEvent> {
         QuickLaunchEffect::OpenWizardCreateTab { parent_path } => Task::done(
             AppEvent::Tabs(TabsEvent::Intent(TabsIntent::OpenWizardTab {
                 title: String::from("Create Quick Launch"),
-                init: WizardTabInit::Create { parent_path },
+                init: WizardTabInit::Create {
+                    parent_path,
+                    command_type: QuickLaunchType::Custom,
+                },
             })),
         ),
         QuickLaunchEffect::OpenWizardEditTab { path, command } => Task::done(

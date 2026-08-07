@@ -181,6 +181,7 @@ impl Runtime {
             PTY_IO_TOKEN,
             PTY_CHILD_TOKEN,
         )?;
+        log::debug!("runtime: session registered, starting poll loop");
 
         let mut shutdown_requested = false;
         let mut exit_detected = false;
@@ -197,7 +198,18 @@ impl Runtime {
 
             self.poll_once(timeout)?;
 
+            log::trace!(
+                "runtime: poll returned {} event(s)",
+                self.events.iter().count()
+            );
+
             for event in self.events.iter() {
+                log::trace!(
+                    "runtime: event token={:?} readable={} writable={}",
+                    event.token(),
+                    event.is_readable(),
+                    event.is_writable()
+                );
                 match event.token() {
                     PTY_IO_TOKEN => {
                         if event.is_readable() {
@@ -232,6 +244,7 @@ impl Runtime {
             }
 
             if desired_interest != interest {
+                log::debug!("runtime: interest change to {desired_interest:?}");
                 driver.reregister(
                     self.poll.registry(),
                     desired_interest,
@@ -242,6 +255,10 @@ impl Runtime {
             }
 
             if exit_detected || shutdown_requested {
+                log::debug!(
+                    "runtime: loop exit (exit_detected={exit_detected}, \
+shutdown_requested={shutdown_requested})"
+                );
                 break;
             }
         }

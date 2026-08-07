@@ -596,6 +596,8 @@ mod tests {
         }
     }
 
+    // requires a working local PTY backend; unsupported on Windows until ConPTY lands
+    #[cfg(unix)]
     #[test]
     fn given_open_tab_command_when_reduced_then_state_stores_tab() {
         let mut state = TerminalWorkspaceState::default();
@@ -648,6 +650,8 @@ mod tests {
         assert_eq!(task.units(), 2);
     }
 
+    // requires a working local PTY backend; unsupported on Windows until ConPTY lands
+    #[cfg(unix)]
     #[test]
     fn given_sync_pane_grid_size_when_reduced_then_all_tab_grid_sizes_update() {
         let mut state = TerminalWorkspaceState::default();

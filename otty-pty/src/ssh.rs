@@ -12,7 +12,8 @@ use std::time::{Duration, Instant};
 use log::debug;
 use mio::{Events, Interest, Poll, Token, Waker};
 use ssh2::{
-    Channel, Error as SshError, ErrorCode, ExtendedData, Session as Ssh2Session,
+    Channel, Error as SshError, ErrorCode, ExtendedData,
+    Session as Ssh2Session, TraceFlags,
 };
 
 use crate::{Pollable, PtySize, Session, SessionError};
@@ -67,6 +68,29 @@ impl SSHSession {
         }
     }
 
+    /// Re-arm mio's edge-triggered readiness after a raw-socket WouldBlock.
+    ///
+    /// All channel I/O bypasses mio (libssh2 owns the socket), so mio's
+    /// Windows backend never observes the WouldBlock it uses as the signal
+    /// to re-register interest, leaving the session permanently deaf after
+    /// the first event. Peeking one byte through the mio socket hits
+    /// WouldBlock once the kernel buffer is drained, which triggers mio's
+    /// internal re-registration without consuming any data.
+    #[cfg(windows)]
+    fn rearm_io_events(&mut self) -> Result<(), SessionError> {
+        match self.io.peek(&mut [0u8; 1]) {
+            Ok(_) => Ok(()),
+            Err(err) if err.kind() == io::ErrorKind::WouldBlock => Ok(()),
+            Err(err) => Err(SessionError::IO(err)),
+        }
+    }
+
+    /// No-op on unix: mio is level-triggered there and needs no re-arming.
+    #[cfg(not(windows))]
+    fn rearm_io_events(&mut self) -> Result<(), SessionError> {
+        Ok(())
+    }
+
     /// Notify the poller that the remote stream exited exactly once.
     fn notify_exit(&mut self) -> Result<(), SessionError> {
         if self.exit_notified {
@@ -113,13 +137,24 @@ impl Session for SSHSession {
         match self.channel.read(buf) {
             // Channel receive the EOF so we need to notify of exit
             Ok(0) => {
+                log::debug!("ssh read: channel EOF");
                 let _ = self.try_get_exit_status();
                 self.notify_exit()?;
                 Ok(0)
             },
-            Ok(n) => Ok(n),
-            Err(e) if e.kind() == io::ErrorKind::WouldBlock => Ok(0),
-            Err(e) => Err(SessionError::IO(e)),
+            Ok(n) => {
+                log::trace!("ssh read: {n} bytes");
+                Ok(n)
+            },
+            Err(e) if e.kind() == io::ErrorKind::WouldBlock => {
+                log::trace!("ssh read: would block");
+                self.rearm_io_events()?;
+                Ok(0)
+            },
+            Err(e) => {
+                log::debug!("ssh read error: {e}");
+                Err(SessionError::IO(e))
+            },
         }
     }
 
@@ -129,10 +164,21 @@ impl Session for SSHSession {
         match self.channel.write(input) {
             Ok(n) => {
                 let _ = self.channel.flush();
+                log::trace!("ssh write: {n}/{} bytes", input.len());
                 Ok(n)
             },
-            Err(ref e) if e.kind() == io::ErrorKind::WouldBlock => Ok(0),
-            Err(e) => Err(SessionError::IO(e)),
+            Err(ref e) if e.kind() == io::ErrorKind::WouldBlock => {
+                log::debug!(
+                    "ssh write: would block ({} bytes pending)",
+                    input.len()
+                );
+                self.rearm_io_events()?;
+                Ok(0)
+            },
+            Err(e) => {
+                log::debug!("ssh write error: {e}");
+                Err(SessionError::IO(e))
+            },
         }
     }
 
@@ -312,6 +358,17 @@ impl SSHSessionBuilder {
         stream.set_nodelay(true)?;
 
         let mut session = Ssh2Session::new()?;
+
+        // Diagnostic tracing (stderr), enabled via OTTY_SSH_TRACE=1.
+        if std::env::var_os("OTTY_SSH_TRACE").is_some() {
+            session.trace(
+                TraceFlags::KEX
+                    | TraceFlags::TRANS
+                    | TraceFlags::ERROR
+                    | TraceFlags::SOCKET,
+            );
+        }
+
         session.set_tcp_stream(stream.try_clone()?);
         session.set_blocking(false);
         executor.exec("ssh handshake", || session.handshake())?;

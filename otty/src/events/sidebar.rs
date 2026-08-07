@@ -1,6 +1,6 @@
 use iced::Task;
 
-use super::AppEvent;
+use super::{AppEvent, open_terminal_tab_task};
 use crate::app::App;
 use crate::widgets::quick_launch::{QuickLaunchEvent, QuickLaunchIntent};
 use crate::widgets::sidebar::{SidebarEffect, SidebarEvent};
@@ -23,11 +23,7 @@ fn handle_effect(app: &App, event: SidebarEffect) -> Task<AppEvent> {
         OpenSettingsTab => Task::done(AppEvent::Tabs(TabsEvent::Intent(
             TabsIntent::OpenSettingsTab,
         ))),
-        OpenTerminalTab => Task::done(AppEvent::Tabs(TabsEvent::Intent(
-            TabsIntent::OpenTerminalTab {
-                title: app.shell_session.name().to_string(),
-            },
-        ))),
+        OpenTerminalTab => open_terminal_tab_task(app),
         QuickLaunchHeaderCreateCommand => Task::done(AppEvent::QuickLaunch(
             QuickLaunchEvent::Intent(QuickLaunchIntent::HeaderCreateCommand),
         )),
@@ -37,5 +33,20 @@ fn handle_effect(app: &App, event: SidebarEffect) -> Task<AppEvent> {
         QuickLaunchResetInteractionState => Task::done(AppEvent::QuickLaunch(
             QuickLaunchEvent::Intent(QuickLaunchIntent::ResetInteractionState),
         )),
+    }
+}
+
+#[cfg(all(test, windows))]
+mod tests {
+    use super::*;
+    use crate::widgets::sidebar::SidebarEffect;
+
+    #[test]
+    fn given_windows_when_open_terminal_tab_then_ssh_wizard_opens() {
+        let (app, _) = App::new();
+
+        let task = handle_effect(&app, SidebarEffect::OpenTerminalTab);
+
+        assert_eq!(task.units(), 1);
     }
 }

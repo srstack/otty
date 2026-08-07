@@ -35,6 +35,25 @@ pub(super) fn load_initial_settings_state() -> SettingsState {
     SettingsState::from_settings(data)
 }
 
+/// Create the settings file with default values on first launch.
+///
+/// Subsequent launches are unaffected: an existing file is left untouched.
+pub(crate) fn ensure_settings_file() {
+    let path = crate::paths::config_dir().join("settings.json");
+
+    if let Err(err) = ensure_settings_file_at(&path) {
+        log::warn!("failed to create default settings file: {err}");
+    }
+}
+
+fn ensure_settings_file_at(path: &Path) -> Result<(), SettingsError> {
+    if path.exists() {
+        return Ok(());
+    }
+
+    save_settings_to_path(path, &SettingsData::default())
+}
+
 fn load_settings_from_path(path: &Path) -> Result<SettingsLoad, SettingsError> {
     let data = match fs::read_to_string(path) {
         Ok(contents) => contents,
@@ -78,14 +97,7 @@ fn save_settings_to_path(
 }
 
 fn settings_path() -> PathBuf {
-    if let Ok(home) = std::env::var("HOME") {
-        return Path::new(&home)
-            .join(".config")
-            .join("otty")
-            .join("settings.json");
-    }
-
-    std::env::temp_dir().join("otty").join("settings.json")
+    crate::paths::config_dir().join("settings.json")
 }
 
 fn write_atomic(path: &Path, payload: &[u8]) -> Result<(), std::io::Error> {
@@ -101,8 +113,8 @@ mod tests {
     use std::time::{SystemTime, UNIX_EPOCH};
 
     use super::{
-        SettingsData, SettingsLoadStatus, load_settings_from_path,
-        save_settings_to_path,
+        SettingsData, SettingsLoadStatus, ensure_settings_file_at,
+        load_settings_from_path, save_settings_to_path,
     };
 
     #[test]
@@ -161,6 +173,43 @@ mod tests {
 
         assert_eq!(loaded_settings, SettingsData::default());
         assert!(matches!(loaded_status, SettingsLoadStatus::Missing));
+
+        fs::remove_dir_all(&root)
+            .expect("temporary directory should be removed");
+    }
+
+    #[test]
+    fn given_missing_file_when_ensure_then_default_settings_created() {
+        let root = test_temp_dir("ensure_creates");
+        let path = root.join("settings.json");
+
+        ensure_settings_file_at(&path).expect("ensure should succeed");
+
+        let loaded = load_settings_from_path(&path)
+            .expect("created settings should load successfully");
+        let (loaded_settings, loaded_status) = loaded.into_parts();
+        assert!(matches!(loaded_status, SettingsLoadStatus::Loaded));
+        assert_eq!(loaded_settings, SettingsData::default());
+
+        fs::remove_dir_all(&root)
+            .expect("temporary directory should be removed");
+    }
+
+    #[test]
+    fn given_existing_file_when_ensure_then_content_untouched() {
+        let root = test_temp_dir("ensure_preserves");
+        let path = root.join("settings.json");
+        let mut settings = SettingsData::default();
+        settings.set_terminal_shell(String::from("/bin/zsh"));
+        save_settings_to_path(&path, &settings)
+            .expect("settings should save successfully");
+
+        ensure_settings_file_at(&path).expect("ensure should succeed");
+
+        let loaded = load_settings_from_path(&path)
+            .expect("settings should load successfully");
+        let (loaded_settings, _) = loaded.into_parts();
+        assert_eq!(loaded_settings, settings);
 
         fs::remove_dir_all(&root)
             .expect("temporary directory should be removed");

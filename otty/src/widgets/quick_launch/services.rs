@@ -188,8 +188,14 @@ fn ssh_session(
         .identity_file()
         .filter(|path| !path.trim().is_empty())
         .map(|path| SSHAuth::KeyFile {
-            private_key_path: path.to_string(),
+            private_key_path: expand_tilde(path),
             passphrase: None,
+        })
+        .or_else(|| {
+            default_identity_file().map(|path| SSHAuth::KeyFile {
+                private_key_path: path.display().to_string(),
+                passphrase: None,
+            })
         })
         .unwrap_or_else(|| SSHAuth::Password(String::new()));
 
@@ -270,16 +276,63 @@ fn find_program_path(program: &str) -> Result<PathBuf, QuickLaunchError> {
         .map(|value| std::env::split_paths(&value).collect())
         .unwrap_or_default();
 
+    let exts = executable_extensions();
+
     for dir in paths {
-        let candidate = dir.join(program);
-        if is_executable_path(&candidate) {
-            return Ok(candidate);
+        for candidate in program_candidates(&dir, program, &exts) {
+            if is_executable_path(&candidate) {
+                return Ok(candidate);
+            }
         }
     }
 
     Err(QuickLaunchError::Validation {
         message: format!("Program not found in PATH: {program}"),
     })
+}
+
+/// Candidate paths for a bare program name within one PATH directory.
+/// On Windows, PATHEXT extensions are appended when the program has no
+/// recognized extension yet; unix always yields the single direct path.
+fn program_candidates(
+    dir: &Path,
+    program: &str,
+    exts: &[String],
+) -> Vec<PathBuf> {
+    let mut candidates = vec![dir.join(program)];
+
+    let lower = program.to_ascii_lowercase();
+    let has_known_ext = exts
+        .iter()
+        .any(|ext| lower.ends_with(&ext.to_ascii_lowercase()));
+
+    if !has_known_ext {
+        candidates
+            .extend(exts.iter().map(|ext| dir.join(format!("{program}{ext}"))));
+    }
+
+    candidates
+}
+
+/// Executable extensions consulted during PATH lookup (Windows PATHEXT).
+#[cfg(windows)]
+fn executable_extensions() -> Vec<String> {
+    const DEFAULT_PATHEXT: [&str; 4] = [".COM", ".EXE", ".BAT", ".CMD"];
+
+    match std::env::var("PATHEXT") {
+        Ok(value) => value
+            .split(';')
+            .filter(|ext| !ext.is_empty())
+            .map(ToString::to_string)
+            .collect(),
+        Err(_) => DEFAULT_PATHEXT.iter().map(ToString::to_string).collect(),
+    }
+}
+
+/// Executable extensions consulted during PATH lookup (none on unix).
+#[cfg(not(windows))]
+fn executable_extensions() -> Vec<String> {
+    Vec::new()
 }
 
 fn validate_program_path(
@@ -327,17 +380,44 @@ fn is_executable_path(path: &Path) -> bool {
 }
 
 fn expand_tilde(path: &str) -> String {
+    let Some(home) = crate::paths::home_dir() else {
+        return path.to_string();
+    };
+
     if path == "~" {
-        return std::env::var("HOME").unwrap_or_else(|_| String::from("~"));
+        return home;
     }
 
-    if let Some(rest) = path.strip_prefix("~/")
-        && let Ok(home) = std::env::var("HOME")
-    {
+    if let Some(rest) = path.strip_prefix("~/") {
+        return format!("{home}/{rest}");
+    }
+
+    if let Some(rest) = path.strip_prefix("~\\") {
         return format!("{home}/{rest}");
     }
 
     path.to_string()
+}
+
+/// Normalize a user-entered filesystem path: trims whitespace, strips one
+/// pair of surrounding quotes (Windows "copy as path" produces them), and
+/// expands a leading `~` (`~/` or `~\`) to the user's home directory.
+fn sanitize_path_input(input: &str) -> String {
+    let trimmed = input.trim();
+
+    let bytes = trimmed.as_bytes();
+    let unquoted = match (bytes.first(), bytes.last()) {
+        (Some(first), Some(last))
+            if trimmed.len() >= 2
+                && first == last
+                && (*first == b'"' || *first == b'\'') =>
+        {
+            &trimmed[1..trimmed.len() - 1]
+        },
+        _ => trimmed,
+    };
+
+    expand_tilde(unquoted)
 }
 
 /// Build a domain quick launch command from editor draft state.
@@ -354,7 +434,7 @@ pub(crate) fn build_command(
             let Some(custom) = editor.custom() else {
                 return Err(QuickLaunchWizardError::MissingCustomDraft);
             };
-            let program = custom.program().trim();
+            let program = sanitize_path_input(custom.program());
             if program.is_empty() {
                 return Err(QuickLaunchWizardError::ProgramRequired);
             }
@@ -374,17 +454,18 @@ pub(crate) fn build_command(
                 })
                 .collect::<Vec<_>>();
 
-            let working_directory = custom.working_directory().trim();
+            let working_directory =
+                sanitize_path_input(custom.working_directory());
 
             CommandSpec::Custom {
                 custom: CustomCommand {
-                    program: program.to_string(),
+                    program,
                     args: custom.args().to_vec(),
                     env,
                     working_directory: if working_directory.is_empty() {
                         None
                     } else {
-                        Some(working_directory.to_string())
+                        Some(working_directory)
                     },
                 },
             }
@@ -411,7 +492,8 @@ pub(crate) fn build_command(
                     host: host.to_string(),
                     port,
                     user: optional_string(ssh.user()),
-                    identity_file: optional_string(ssh.identity_file()),
+                    identity_file: optional_string(ssh.identity_file())
+                        .map(|value| sanitize_path_input(&value)),
                     extra_args: ssh.extra_args().to_vec(),
                 },
             }
@@ -433,13 +515,37 @@ fn optional_string(value: &str) -> Option<String> {
     }
 }
 
+/// Default SSH identity candidates in OpenSSH order.
+const DEFAULT_IDENTITY_FILES: [&str; 4] =
+    ["id_rsa", "id_ecdsa", "id_ed25519", "id_dsa"];
+
+/// First existing default SSH identity file under the user's `~/.ssh`.
+fn default_identity_file() -> Option<PathBuf> {
+    let home = crate::paths::home_dir()?;
+    default_identity_file_in(&PathBuf::from(home).join(".ssh"))
+}
+
+/// First existing default identity file within the given ssh directory.
+fn default_identity_file_in(ssh_dir: &Path) -> Option<PathBuf> {
+    DEFAULT_IDENTITY_FILES
+        .iter()
+        .map(|name| ssh_dir.join(name))
+        .find(|path| path.is_file())
+}
+
 #[cfg(test)]
 mod tests {
+    use std::fs;
     use std::sync::Arc;
     use std::sync::atomic::AtomicBool;
 
     use super::*;
     use crate::widgets::quick_launch::types::{CustomCommand, SshCommand};
+
+    #[cfg(unix)]
+    const EXISTING_PROGRAM: &str = "bash";
+    #[cfg(windows)]
+    const EXISTING_PROGRAM: &str = "cmd";
 
     #[test]
     fn given_empty_program_when_validating_then_error_returned() {
@@ -463,7 +569,7 @@ mod tests {
             title: String::from("Good"),
             spec: CommandSpec::Custom {
                 custom: CustomCommand {
-                    program: String::from("bash"),
+                    program: String::from(EXISTING_PROGRAM),
                     args: Vec::new(),
                     env: Vec::new(),
                     working_directory: None,
@@ -538,14 +644,15 @@ mod tests {
 
     #[test]
     fn given_empty_title_when_building_command_then_returns_title_required() {
-        let editor = WizardEditorState::new(vec![]);
+        let editor = WizardEditorState::new(vec![], QuickLaunchType::Custom);
         let result = build_command(&editor);
         assert!(matches!(result, Err(QuickLaunchWizardError::TitleRequired)));
     }
 
     #[test]
     fn given_custom_editor_when_building_command_then_returns_custom_launch() {
-        let mut editor = WizardEditorState::new(vec![]);
+        let mut editor =
+            WizardEditorState::new(vec![], QuickLaunchType::Custom);
         editor.set_title(String::from("Build"));
         editor.set_program(String::from("cargo"));
         editor.add_arg();
@@ -570,8 +677,140 @@ mod tests {
     }
 
     #[test]
+    fn given_no_exts_when_program_candidates_then_yields_direct_path_only() {
+        let dir = Path::new("/usr/bin");
+        let candidates = program_candidates(dir, "bash", &[]);
+
+        assert_eq!(candidates, vec![dir.join("bash")]);
+    }
+
+    #[test]
+    fn given_exts_and_bare_program_when_program_candidates_then_appends_exts() {
+        let dir = Path::new("C:/Windows/System32");
+        let exts = vec![String::from(".EXE"), String::from(".BAT")];
+        let candidates = program_candidates(dir, "cmd", &exts);
+
+        assert_eq!(
+            candidates,
+            vec![dir.join("cmd"), dir.join("cmd.EXE"), dir.join("cmd.BAT"),]
+        );
+    }
+
+    #[test]
+    fn given_program_with_known_ext_when_program_candidates_then_no_double_ext()
+    {
+        let dir = Path::new("C:/tools");
+        let exts = vec![String::from(".exe"), String::from(".bat")];
+        let candidates = program_candidates(dir, "pwsh.EXE", &exts);
+
+        assert_eq!(candidates, vec![dir.join("pwsh.EXE")]);
+    }
+
+    #[test]
+    fn given_program_with_unknown_ext_when_program_candidates_then_appends_exts()
+     {
+        let dir = Path::new("C:/tools");
+        let exts = vec![String::from(".COM"), String::from(".EXE")];
+        let candidates = program_candidates(dir, "script.sh", &exts);
+
+        assert_eq!(
+            candidates,
+            vec![
+                dir.join("script.sh"),
+                dir.join("script.sh.COM"),
+                dir.join("script.sh.EXE"),
+            ]
+        );
+    }
+
+    #[test]
+    fn given_multiple_default_identities_when_probing_then_openssh_order_wins()
+    {
+        let root = test_temp_dir("order_wins");
+        fs::write(root.join("id_rsa"), "rsa-key")
+            .expect("id_rsa should be written");
+        fs::write(root.join("id_ed25519"), "ed25519-key")
+            .expect("id_ed25519 should be written");
+
+        let probed = default_identity_file_in(&root);
+
+        assert_eq!(probed, Some(root.join("id_rsa")));
+
+        fs::remove_dir_all(&root)
+            .expect("temporary directory should be removed");
+    }
+
+    #[test]
+    fn given_only_ed25519_when_probing_then_it_is_returned() {
+        let root = test_temp_dir("only_ed25519");
+        fs::write(root.join("id_ed25519"), "ed25519-key")
+            .expect("id_ed25519 should be written");
+
+        let probed = default_identity_file_in(&root);
+
+        assert_eq!(probed, Some(root.join("id_ed25519")));
+
+        fs::remove_dir_all(&root)
+            .expect("temporary directory should be removed");
+    }
+
+    #[test]
+    fn given_empty_ssh_dir_when_probing_then_none_returned() {
+        let root = test_temp_dir("empty_dir");
+
+        let probed = default_identity_file_in(&root);
+
+        assert_eq!(probed, None);
+
+        fs::remove_dir_all(&root)
+            .expect("temporary directory should be removed");
+    }
+
+    #[test]
+    fn given_nonexistent_ssh_dir_when_probing_then_none_returned() {
+        let root = std::env::temp_dir()
+            .join(format!("otty-quick-launch-missing-{}", std::process::id()));
+
+        let probed = default_identity_file_in(&root);
+
+        assert_eq!(probed, None);
+    }
+
+    #[test]
+    fn given_identity_as_directory_when_probing_then_it_is_skipped() {
+        let root = test_temp_dir("dir_identity");
+        fs::create_dir_all(root.join("id_rsa"))
+            .expect("id_rsa directory should be created");
+        fs::write(root.join("id_ecdsa"), "ecdsa-key")
+            .expect("id_ecdsa should be written");
+
+        let probed = default_identity_file_in(&root);
+
+        assert_eq!(probed, Some(root.join("id_ecdsa")));
+
+        fs::remove_dir_all(&root)
+            .expect("temporary directory should be removed");
+    }
+
+    fn test_temp_dir(test_name: &str) -> std::path::PathBuf {
+        let stamp = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .expect("clock should be monotonic")
+            .as_nanos();
+        let dir = std::env::temp_dir().join(format!(
+            "otty-quick-launch-{test_name}-{stamp}-{}",
+            std::process::id()
+        ));
+
+        fs::create_dir_all(&dir)
+            .expect("temporary directory should be created");
+        dir
+    }
+
+    #[test]
     fn given_invalid_ssh_port_when_building_command_then_returns_error() {
-        let mut editor = WizardEditorState::new(vec![]);
+        let mut editor =
+            WizardEditorState::new(vec![], QuickLaunchType::Custom);
         editor.set_title(String::from("SSH"));
         editor.set_command_type(QuickLaunchType::Ssh);
         editor.set_host(String::from("example.com"));
@@ -579,5 +818,152 @@ mod tests {
 
         let result = build_command(&editor);
         assert!(matches!(result, Err(QuickLaunchWizardError::InvalidPort)));
+    }
+
+    #[test]
+    fn given_double_quoted_path_when_sanitizing_then_quotes_are_stripped() {
+        assert_eq!(
+            sanitize_path_input("\"C:\\Users\\alice\\key\""),
+            "C:\\Users\\alice\\key"
+        );
+    }
+
+    #[test]
+    fn given_single_quoted_path_when_sanitizing_then_quotes_are_stripped() {
+        assert_eq!(
+            sanitize_path_input("'C:\\keys\\id_rsa'"),
+            "C:\\keys\\id_rsa"
+        );
+    }
+
+    #[test]
+    fn given_unbalanced_leading_quote_when_sanitizing_then_path_untouched() {
+        assert_eq!(sanitize_path_input("\"C:\\keys"), "\"C:\\keys");
+    }
+
+    #[test]
+    fn given_unquoted_path_when_sanitizing_then_whitespace_is_trimmed() {
+        assert_eq!(sanitize_path_input("  /tmp/key  "), "/tmp/key");
+    }
+
+    #[test]
+    fn given_blank_path_when_sanitizing_then_empty_returned() {
+        assert_eq!(sanitize_path_input("   "), "");
+    }
+
+    #[test]
+    fn given_quoted_path_with_spaces_when_sanitizing_then_spaces_preserved() {
+        assert_eq!(
+            sanitize_path_input("\"C:\\Program Files\\key\""),
+            "C:\\Program Files\\key"
+        );
+    }
+
+    #[test]
+    fn given_quoted_tilde_path_when_sanitizing_then_tilde_is_expanded() {
+        let home =
+            crate::paths::home_dir().expect("home directory should be known");
+
+        assert_eq!(
+            sanitize_path_input("\"~/.ssh/id_rsa\""),
+            format!("{home}/.ssh/id_rsa")
+        );
+    }
+
+    #[test]
+    fn given_backslash_tilde_path_when_expanding_then_home_is_prepended() {
+        let home =
+            crate::paths::home_dir().expect("home directory should be known");
+
+        let expanded = expand_tilde("~\\rest");
+
+        assert!(expanded.starts_with(&home));
+        assert!(expanded.ends_with("rest"));
+    }
+
+    #[test]
+    fn given_forward_slash_tilde_path_when_expanding_then_home_is_prepended() {
+        let home =
+            crate::paths::home_dir().expect("home directory should be known");
+
+        assert_eq!(expand_tilde("~/rest"), format!("{home}/rest"));
+    }
+
+    #[test]
+    fn given_absolute_windows_path_when_expanding_then_path_unchanged() {
+        assert_eq!(expand_tilde("C:\\Users\\x"), "C:\\Users\\x");
+    }
+
+    #[test]
+    fn given_relative_path_when_expanding_then_path_unchanged() {
+        assert_eq!(expand_tilde("keys/id_rsa"), "keys/id_rsa");
+    }
+
+    #[test]
+    fn given_tilde_identity_when_building_session_then_path_is_expanded() {
+        let ssh = SshCommand {
+            host: String::from("example.com"),
+            port: 22,
+            user: None,
+            identity_file: Some(String::from("~/.ssh/otty-test-key")),
+            extra_args: Vec::new(),
+        };
+        let cancel = Arc::new(AtomicBool::new(false));
+
+        let options = ssh_session(&ssh, &cancel);
+
+        let SSHAuth::KeyFile {
+            private_key_path, ..
+        } = options.auth()
+        else {
+            panic!("expected key file auth");
+        };
+        assert!(!private_key_path.contains('~'));
+        assert!(
+            private_key_path.ends_with(".ssh/otty-test-key")
+                || private_key_path.ends_with(".ssh\\otty-test-key")
+        );
+    }
+
+    #[test]
+    fn given_absolute_identity_when_building_session_then_path_is_preserved() {
+        let ssh = SshCommand {
+            host: String::from("example.com"),
+            port: 22,
+            user: None,
+            identity_file: Some(String::from("C:\\keys\\id_rsa")),
+            extra_args: Vec::new(),
+        };
+        let cancel = Arc::new(AtomicBool::new(false));
+
+        let options = ssh_session(&ssh, &cancel);
+
+        let SSHAuth::KeyFile {
+            private_key_path, ..
+        } = options.auth()
+        else {
+            panic!("expected key file auth");
+        };
+        assert_eq!(private_key_path, "C:\\keys\\id_rsa");
+    }
+
+    #[test]
+    fn given_quoted_ssh_identity_when_building_command_then_path_sanitized() {
+        let mut editor = WizardEditorState::new(vec![], QuickLaunchType::Ssh);
+        editor.set_title(String::from("SSH"));
+        editor.set_host(String::from("example.com"));
+        editor.set_identity_file(String::from("\"~/.ssh/id_rsa\""));
+
+        let quick_launch =
+            build_command(&editor).expect("build should succeed");
+
+        let CommandSpec::Ssh { ssh } = &quick_launch.spec else {
+            panic!("expected ssh command");
+        };
+        let identity =
+            ssh.identity_file().expect("identity file should be set");
+        assert!(!identity.starts_with('"'));
+        assert!(!identity.contains('~'));
+        assert!(identity.ends_with(".ssh/id_rsa"));
     }
 }

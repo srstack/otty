@@ -602,9 +602,11 @@ mod tests {
     use super::*;
     use crate::surface::{Surface, SurfaceConfig};
     use crate::terminal::channel::ChannelConfig;
+    #[cfg(unix)]
+    use crate::tests::EioSession;
     use crate::tests::{
-        EioSession, FakeSession, PartialSession, StubParser, assert_frame,
-        collect_events, exit_ok,
+        FakeSession, PartialSession, StubParser, assert_frame, collect_events,
+        exit_ok,
     };
     use crate::{DefaultParser, Error};
 

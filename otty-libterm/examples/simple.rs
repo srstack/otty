@@ -1,6 +1,9 @@
+#[cfg(unix)]
 use std::thread;
+#[cfg(unix)]
 use std::time::Duration;
 
+#[cfg(unix)]
 use otty_libterm::{
     TerminalBuilder, TerminalEvent, TerminalRequest, TerminalSize, pty,
 };

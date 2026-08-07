@@ -4,8 +4,11 @@
 //! `cargo run --package otty-pty --example run_unix_shell`
 
 use std::error::Error;
+#[cfg(unix)]
 use std::io::ErrorKind;
+#[cfg(unix)]
 use std::thread;
+#[cfg(unix)]
 use std::time::Duration;
 
 #[cfg(unix)]

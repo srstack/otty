@@ -142,14 +142,16 @@ fn handle_effect(app: &mut App, effect: TabsEffect) -> Task<AppEvent> {
             SettingsEvent::Intent(SettingsIntent::Reload),
         )),
         TabsEffect::WizardTabOpened { tab_id, init } => match init {
-            WizardTabInit::Create { parent_path } => {
-                Task::done(AppEvent::QuickLaunch(QuickLaunchEvent::Intent(
-                    QuickLaunchIntent::WizardInitializeCreate {
-                        tab_id,
-                        parent_path,
-                    },
-                )))
-            },
+            WizardTabInit::Create {
+                parent_path,
+                command_type,
+            } => Task::done(AppEvent::QuickLaunch(QuickLaunchEvent::Intent(
+                QuickLaunchIntent::WizardInitializeCreate {
+                    tab_id,
+                    parent_path,
+                    command_type,
+                },
+            ))),
             WizardTabInit::Edit { path, command } => {
                 Task::done(AppEvent::QuickLaunch(QuickLaunchEvent::Intent(
                     QuickLaunchIntent::WizardInitializeEdit {
@@ -180,6 +182,7 @@ mod tests {
     use super::handle;
     use crate::app::App;
     use crate::domain::quick_launch::WizardTabInit;
+    use crate::widgets::quick_launch::types::QuickLaunchType;
     use crate::widgets::tabs::{TabsEffect, TabsEvent};
 
     #[test]
@@ -193,6 +196,7 @@ mod tests {
                 tab_id: 7,
                 init: WizardTabInit::Create {
                     parent_path: vec![String::from("Demo")],
+                    command_type: QuickLaunchType::Custom,
                 },
             }),
         );

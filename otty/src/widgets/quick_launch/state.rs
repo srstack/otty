@@ -405,8 +405,14 @@ impl WizardState {
         self.editors.get_mut(&tab_id)
     }
 
-    pub(super) fn initialize_create(&mut self, tab_id: u64, parent: NodePath) {
-        self.editors.insert(tab_id, WizardEditorState::new(parent));
+    pub(super) fn initialize_create(
+        &mut self,
+        tab_id: u64,
+        parent: NodePath,
+        command_type: QuickLaunchType,
+    ) {
+        self.editors
+            .insert(tab_id, WizardEditorState::new(parent, command_type));
     }
 
     pub(super) fn initialize_edit(
@@ -444,11 +450,23 @@ pub(crate) struct WizardEditorState {
 
 impl WizardEditorState {
     /// Build state for creating a command in the target folder.
-    pub(crate) fn new(parent_path: NodePath) -> Self {
+    pub(crate) fn new(
+        parent_path: NodePath,
+        command_type: QuickLaunchType,
+    ) -> Self {
+        let options = match command_type {
+            QuickLaunchType::Custom => {
+                WizardOptions::Custom(CommandLaunchOptions::default())
+            },
+            QuickLaunchType::Ssh => {
+                WizardOptions::Ssh(SshLaunchOptions::default())
+            },
+        };
+
         Self {
             mode: WizardMode::Create { parent_path },
             title: String::new(),
-            options: WizardOptions::Custom(CommandLaunchOptions::default()),
+            options,
             error: None,
         }
     }
@@ -685,12 +703,34 @@ mod tests {
 
     #[test]
     fn given_create_editor_when_switching_command_type_then_options_reset() {
-        let mut editor = WizardEditorState::new(vec![]);
+        let mut editor =
+            WizardEditorState::new(vec![], QuickLaunchType::Custom);
         editor.set_program(String::from("bash"));
         editor.set_command_type(QuickLaunchType::Ssh);
         assert_eq!(editor.command_type(), QuickLaunchType::Ssh);
         assert!(editor.custom().is_none());
         let ssh = editor.ssh().expect("ssh options should exist");
         assert_eq!(ssh.port(), SSH_DEFAULT_PORT.to_string());
+    }
+
+    #[test]
+    fn given_ssh_type_when_initialize_create_then_editor_is_ssh() {
+        let mut state = WizardState::default();
+        state.initialize_create(1, vec![], QuickLaunchType::Ssh);
+
+        let editor = state.editor(1).expect("editor should exist");
+        assert_eq!(editor.command_type(), QuickLaunchType::Ssh);
+        assert!(editor.ssh().is_some());
+        assert!(editor.is_create_mode());
+    }
+
+    #[test]
+    fn given_custom_type_when_initialize_create_then_editor_is_custom() {
+        let mut state = WizardState::default();
+        state.initialize_create(1, vec![], QuickLaunchType::Custom);
+
+        let editor = state.editor(1).expect("editor should exist");
+        assert_eq!(editor.command_type(), QuickLaunchType::Custom);
+        assert!(editor.custom().is_some());
     }
 }
